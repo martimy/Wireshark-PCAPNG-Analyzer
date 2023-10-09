@@ -1,6 +1,5 @@
 from scapy.all import *  # PcapReader # rdpcap
 import streamlit as st
-import matplotlib.pyplot as plt
 import plotly.express as px
 import pandas as pd
 
@@ -26,7 +25,7 @@ def get_protocol_names(packet):
         current_layer = current_layer.payload if current_layer.payload else None
 
 
-def get_counts(packets, count=100):
+def get_protocol_count(packets, count=100):
     """
     Count multiple packet stats
     """
@@ -34,6 +33,7 @@ def get_counts(packets, count=100):
     net_count = {}
     tcp_count = {}
     app_count = {}
+    service_count = {}
 
     for i, pkt in enumerate(packets):
         protocols = list(get_protocol_names(pkt))
@@ -45,6 +45,21 @@ def get_counts(packets, count=100):
                 proto = protocols[2]
                 tcp_count.setdefault(proto, 0)
                 tcp_count[proto] += 1
+
+                if TCP in pkt:
+                    sport = pkt[TCP].sport
+                    dport = pkt[TCP].dport
+                    port = min(sport, dport)
+                    service = TCP_SERVICES[port] if port in TCP_SERVICES else port
+                elif UDP in pkt:
+                    sport = pkt[UDP].sport
+                    dport = pkt[UDP].dport
+                    port = min(sport, dport)
+                    service = UDP_SERVICES[port] if port in UDP_SERVICES else port
+
+                service_count.setdefault(service, 0)
+                service_count[service] += 1
+
                 if len(protocols) >= 4:
                     proto = (
                         "Unspecified"
@@ -55,7 +70,12 @@ def get_counts(packets, count=100):
                     app_count[proto] += 1
         if i > count:
             break
-    return {"network": net_count, "transport": tcp_count, "application": app_count}
+    return {
+        "network": net_count,
+        "transport": tcp_count,
+        "application": app_count,
+        "port": service_count,
+    }
 
 
 def get_address_count(packets):
@@ -119,7 +139,9 @@ st.set_page_config(layout="wide")
 st.title("Wireshark File Analyzer")
 
 # Upload Wireshark file
-uploaded_file = st.sidebar.file_uploader("Upload a Wireshark file", type=["pcap", "pcapng"])
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a Wireshark file", type=["pcap", "pcapng"]
+)
 
 if uploaded_file is not None:
     # Read the uploaded file using Scapy
@@ -127,38 +149,69 @@ if uploaded_file is not None:
     num_packets = len(packets)
 
     if num_packets > 100:
-        count = st.slider(
-            "Number of Packets to Analyze", min_value=100, max_value=min(num_packets, 5000), step=100
+        count = st.sidebar.slider(
+            "Number of Packets to Analyze",
+            min_value=100,
+            max_value=min(num_packets, 5000),
+            step=100,
         )
     else:
         count = num_packets
 
-    # Analyze and display packet details
-    st.subheader("Statistics:")
-
-    proto_counts = get_counts(packets, count=count)
+    proto_counts = get_protocol_count(packets, count=count)
 
     row_0 = st.columns([1, 1])
     with row_0[0]:
         l2 = proto_counts["network"]
         data = {"protocols": trim_labels(l2.keys()), "packets": l2.values()}
         df = pd.DataFrame(data)
-        fig = px.pie(df, values=data["packets"], names=data["protocols"], height=400, title="Network Protocols")
+        fig = px.pie(
+            df,
+            values=data["packets"],
+            names=data["protocols"],
+            height=400,
+            title="Network Protocols",
+        )
         st.plotly_chart(fig, use_container_width=True)
     with row_0[1]:
         l3 = proto_counts["transport"]
         data = {"protocols": trim_labels(l3.keys()), "packets": l3.values()}
         df = pd.DataFrame(data)
-        fig = px.pie(df, values=data["packets"], names=data["protocols"], height=400, title="Transport Protocols")
+        fig = px.pie(
+            df,
+            values=data["packets"],
+            names=data["protocols"],
+            height=400,
+            title="Transport Protocols",
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-    row_1 = st.columns([1, 1])
-    with row_1[0]:
-        l4 = proto_counts["application"]
-        data = {"protocols": trim_labels(l4.keys()), "packets": l4.values()}
-        df = pd.DataFrame(data)
-        fig = px.pie(df, values=data["packets"], names=data["protocols"], height=400, title="Applications")
-        st.plotly_chart(fig, use_container_width=True)
+    # row_1 = st.columns([1, 1])
+    # with row_1[0]:
+    #     l4 = proto_counts["application"]
+    #     data = {"protocols": trim_labels(l4.keys()), "packets": l4.values()}
+    #     df = pd.DataFrame(data)
+    #     fig = px.pie(
+    #         df,
+    #         values=data["packets"],
+    #         names=data["protocols"],
+    #         height=400,
+    #         title="Applications",
+    #     )
+    #     st.plotly_chart(fig, use_container_width=True)
+    # with row_1[1]:
+
+    lp = get_top_items(proto_counts["port"], count=10)
+    data = {"port": lp.keys(), "count": lp.values()}
+    df = pd.DataFrame(data)
+    fig = px.pie(
+        df,
+        values=data["count"],
+        names=data["port"],
+        height=400,
+        title="Services",
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     addr_count = get_address_count(packets)
     top_sources = get_top_items(addr_count["src"])

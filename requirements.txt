@@ -1,5 +1,4 @@
 streamlit
 scapy
-matplotlib
 plotly
 pandas
