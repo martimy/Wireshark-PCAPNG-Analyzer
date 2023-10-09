@@ -46,7 +46,7 @@ pip install -r requirements.txt
 1. Run the Streamlit app:
 
 ```bash
-streamlit run app.py
+streamlit run st_shark.py
 ```
 
 2. Open your web browser and navigate to the URL displayed by Streamlit.
